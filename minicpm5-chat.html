@@ -213,7 +213,7 @@ const RAM_GB = navigator.deviceMemory || null;
 
 // Quanta memoria grafica possiamo usare senza rischiare crash
 function memoryBudgetGB() {
-  if (IS_PHONE) return 1.6; // su iPhone il 2B a 4k (circa 1,9 GB) già a volte crasha
+  if (IS_PHONE) return 1.3; // su iPhone anche il 1B a 16k ha fatto fermare la GPU
   if (RAM_GB && RAM_GB < 8) return 1.8;
   return 2.6; // PC con 8 GB di RAM (spesso con scheda grafica integrata che condivide la RAM)
 }
@@ -230,7 +230,7 @@ const input = $("input"), sendBtn = $("send"), newChatBtn = $("newChat"), settin
 const thinkToggle = $("thinkToggle"), modelSel = $("modelSel"), ctxSel = $("ctxSel"), ctxNote = $("ctxNote");
 const backendSel = $("backend"), usageEl = $("usage"), pendingEl = $("pending"), fileInput = $("fileInput");
 
-let engine = null, history = [], busy = false, pendingFile = null;
+let engine = null, history = [], busy = false, pendingFile = null, engineBroken = false;
 let current = MODELS["2b"], CTX = 4096;
 
 function save(k, v) { try { localStorage.setItem(k, v); } catch {} }
@@ -329,6 +329,17 @@ async function checkSupport() {
 }
 
 /* ---------- Caricamento ---------- */
+// Ricarica il modello già scaricato dopo che la scheda grafica si è fermata
+async function reloadEngine(onText) {
+  try { await engine?.unload(); } catch {}
+  engine = null;
+  engine = await webllm.CreateMLCEngine(current.id, {
+    appConfig,
+    initProgressCallback: (r) => onText("Ricarico il modello: " + Math.round((r.progress || 0) * 100) + "%"),
+  });
+  engineBroken = false;
+}
+const GPU_CRASH = /map ?async|device (was )?lost|lost|not loaded|disposed|gpu|oom|out of memory|buffer/i;
 loadBtn.addEventListener("click", async () => {
   loadBtn.disabled = modelSel.disabled = ctxSel.disabled = backendSel.disabled = true;
   CTX = +ctxSel.value;
@@ -420,6 +431,8 @@ function buildMessages() {
     out.unshift(history[i]);
     used += t;
   }
+  const last = out[out.length - 1];
+  if (last && last.role === "user") out[out.length - 1] = { ...last, content: last.content + "\n\n(Rispondi in italiano.)" };
   return { messages: [{ role: "system", content: SYSTEM }, ...out], used, dropped: history.length - out.length };
 }
 function updateUsage(extra = 0) {
@@ -548,6 +561,7 @@ function isLooping(text) {
   const inCode = (text.split("```").length - 1) % 2 === 1;
   const tail = text.slice(inCode ? -1500 : -400);
   const limit = inCode ? 15 : 4;
+  if (!inCode && text.length > 600 && !/[.,;:!?\n]/.test(text.slice(-350))) return true;
   for (const n of [12, 20, 30, 45]) {
     const piece = text.slice(-n);
     if (piece.trim().length < 6) continue;
@@ -568,7 +582,7 @@ function trimLoop(text) {
 async function send() {
   if (busy) { engine?.interruptGenerate(); return; }
   const text = input.value.trim();
-  if ((!text && !pendingFile) || !engine) return;
+  if ((!text && !pendingFile) || (!engine && !engineBroken)) return;
 
   let content = text;
   const file = pendingFile;
@@ -590,6 +604,18 @@ async function send() {
   const el = addBot();
   busy = true;
   sendBtn.textContent = "■"; sendBtn.setAttribute("aria-label", "Ferma");
+  if (engineBroken || !engine) {
+    try {
+      await reloadEngine(t => (el.querySelector(".meta").textContent = t));
+      el.querySelector(".meta").textContent = "Sto leggendo il messaggio…";
+    } catch (e) {
+      el.querySelector(".meta").textContent = "Non riesco a ricaricare il modello. Ricarica la pagina e tocca Avvia.";
+      history.pop();
+      busy = false;
+      sendBtn.textContent = "↑"; sendBtn.setAttribute("aria-label", "Invia");
+      return;
+    }
+  }
 
   let full = "", looped = false, tokens = 0;
   const t0 = performance.now();
@@ -618,18 +644,23 @@ async function send() {
     history.push({ role: "assistant", content: answer || full });
     const secs = (performance.now() - t0) / 1000;
     let meta = fmtNum(tokens / secs) + " token/s";
-    if (looped) meta += ". Fermato perché si stava ripetendo.";
+    if (looped) meta += ". Fermato perché stava andando in loop o scrivendo parole senza senso.";
     if (dropped > 0) meta += ". I messaggi più vecchi non entrano più nella memoria.";
     el.querySelector(".meta").textContent = meta;
   } catch (e) {
     console.error(e);
     updateBot(el, full, thinkingOn, true);
     const m = String(e.message || e);
-    el.querySelector(".meta").textContent = /context/i.test(m)
-      ? "Conversazione troppo lunga per la memoria scelta. Premi Nuova chat."
-      : /lost|memory|oom/i.test(m)
-        ? "Memoria della scheda grafica esaurita. Tocca Modello e scegli una memoria più bassa."
-        : "Errore: " + m;
+    if (/context/i.test(m)) {
+      el.querySelector(".meta").textContent = "Conversazione troppo lunga per la memoria scelta. Premi Nuova chat.";
+    } else if (GPU_CRASH.test(m)) {
+      engineBroken = true;
+      el.querySelector(".meta").textContent = IS_PHONE
+        ? "La scheda grafica del telefono si è fermata (memoria piena o telefono troppo caldo). Riscrivi il messaggio: il modello si ricarica da solo. Se succede spesso, spegni “Ragiona” o scegli una memoria più bassa."
+        : "La scheda grafica si è fermata. Riscrivi il messaggio: il modello si ricarica da solo. Se succede spesso, scegli una memoria più bassa.";
+    } else {
+      el.querySelector(".meta").textContent = "Errore: " + m;
+    }
     history.pop();
   } finally {
     busy = false;
