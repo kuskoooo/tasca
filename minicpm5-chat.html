@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#EEF0F7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14172B" media="(prefers-color-scheme: dark)">
+<title>Tasca – MiniCPM5 offline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#EEF0F7; --surface:#FFFFFF; --ink:#1E2340; --muted:#6A6F8C;
+  --accent:#3D4FD8; --accent-ink:#FFFFFF; --line:#D8DBEA; --think:#E3E6F5; --err:#B3261E;
+  color-scheme: light;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#14172B; --surface:#1D2140; --ink:#E6E8F5; --muted:#9A9FC0;
+    --accent:#8C9BFF; --accent-ink:#14172B; --line:#2E3358; --think:#232850; --err:#FF8A80;
+    color-scheme: dark;
+  }
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:"Bricolage Grotesque",-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  font-size:16px; line-height:1.5;
+  display:flex; flex-direction:column; overflow:hidden;
+}
+button{font:inherit;cursor:pointer}
+button:focus-visible,textarea:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+
+/* Barra in alto */
+header{
+  display:flex; align-items:center; gap:12px;
+  padding:10px 16px; border-bottom:1px solid var(--line);
+}
+header h1{font-size:20px;font-weight:800;margin:0;letter-spacing:-0.02em;flex:1}
+header h1 small{display:block;font-size:12px;font-weight:400;color:var(--muted);letter-spacing:0}
+.ghost{
+  background:none;border:1px solid var(--line);color:var(--ink);
+  border-radius:999px;padding:6px 14px;font-size:14px;
+}
+.ghost:disabled{opacity:.4}
+
+/* Schermata di avvio */
+#boot{
+  flex:1; display:flex; flex-direction:column; justify-content:center;
+  padding:24px; max-width:560px; margin:0 auto; width:100%;
+}
+#boot .big{
+  font-size:clamp(56px,18vw,96px); font-weight:800; line-height:.9;
+  letter-spacing:-0.05em; margin:0 0 8px;
+  font-variant-numeric:tabular-nums;
+}
+#boot .big span{font-size:.35em;letter-spacing:-0.02em;color:var(--muted);font-weight:600}
+#boot p{color:var(--muted);margin:0 0 24px;max-width:42ch}
+.track{height:10px;background:var(--line);border-radius:5px;overflow:hidden;margin-bottom:10px}
+.fill{height:100%;width:0;background:var(--accent);transition:width .3s}
+#status{font-size:13px;color:var(--muted);min-height:2.6em;margin-bottom:20px;word-break:break-word}
+#status.error{color:var(--err)}
+.primary{
+  background:var(--accent);color:var(--accent-ink);border:0;
+  border-radius:14px;padding:16px 20px;font-size:17px;font-weight:600;width:100%;
+}
+.primary:disabled{opacity:.5}
+
+/* Chat */
+#chat{flex:1;display:none;flex-direction:column;min-height:0}
+#log{flex:1;overflow-y:auto;padding:16px;-webkit-overflow-scrolling:touch}
+.inner{max-width:680px;margin:0 auto}
+.empty{color:var(--muted);text-align:center;margin-top:30vh}
+.msg{margin:0 0 18px}
+.msg.user{display:flex;justify-content:flex-end}
+.msg.user .bubble{
+  background:var(--accent);color:var(--accent-ink);
+  padding:10px 14px;border-radius:18px 18px 4px 18px;max-width:85%;white-space:pre-wrap;word-break:break-word;
+}
+.msg.bot .bubble{word-break:break-word}
+.msg.bot .bubble p{margin:0 0 .7em}
+.msg.bot .bubble p:last-child{margin-bottom:0}
+.bubble pre{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;overflow-x:auto;font-size:13px}
+.bubble code{font-family:ui-monospace,Menlo,monospace;font-size:.9em}
+details.think{
+  background:var(--think);border-radius:10px;padding:8px 12px;margin-bottom:10px;
+  font-size:14px;color:var(--muted);
+}
+details.think summary{cursor:pointer;font-weight:600}
+details.think div{white-space:pre-wrap;margin-top:6px}
+.cursor::after{content:"▍";animation:blink 1s steps(1) infinite;color:var(--accent)}
+@keyframes blink{50%{opacity:0}}
+.meta{font-size:12px;color:var(--muted);margin-top:4px}
+
+/* Composer */
+#composer{border-top:1px solid var(--line);padding:10px 12px;background:var(--bg)}
+#composer .inner{display:flex;flex-direction:column;gap:8px}
+.row{display:flex;gap:8px;align-items:flex-end}
+textarea{
+  flex:1;resize:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  border-radius:20px;padding:10px 14px;font:inherit;font-size:16px;max-height:140px;
+}
+#send{
+  background:var(--accent);color:var(--accent-ink);border:0;border-radius:50%;
+  width:44px;height:44px;flex:none;font-size:20px;font-weight:800;
+}
+#send:disabled{opacity:.4}
+.toggle{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--muted)}
+.toggle input{width:18px;height:18px;accent-color:var(--accent)}
+@media (prefers-reduced-motion: reduce){.fill{transition:none}.cursor::after{animation:none}}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Tasca<small>MiniCPM5-2B, tutto sul tuo telefono</small></h1>
+  <button class="ghost" id="newChat" disabled>Nuova chat</button>
+</header>
+
+<section id="boot">
+  <div class="big" id="pct">1,4<span> GB</span></div>
+  <p id="intro">Il modello si scarica una volta sola, poi resta salvato in Safari e funziona anche senza internet. Usa il Wi‑Fi.</p>
+  <div class="track"><div class="fill" id="fill"></div></div>
+  <div id="status">Controllo il supporto WebGPU…</div>
+  <button class="primary" id="loadBtn" disabled>Scarica e avvia</button>
+</section>
+
+<section id="chat">
+  <div id="log"><div class="inner" id="msgs"><div class="empty" id="empty">Scrivi qualcosa per iniziare.</div></div></div>
+  <div id="composer">
+    <div class="inner">
+      <label class="toggle"><input type="checkbox" id="thinkToggle"> Ragiona prima di rispondere (più lento, più preciso)</label>
+      <div class="row">
+        <textarea id="input" rows="1" placeholder="Scrivi un messaggio"></textarea>
+        <button id="send" aria-label="Invia">↑</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script type="module">
+import * as webllm from "https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.84/+esm";
+
+const MODEL_ID = "MiniCPM5-2B-q4f16_1-MLC";
+const appConfig = {
+  model_list: [{
+    model: "https://huggingface.co/ozhyhinas/MiniCPM5-2B-q4f16_1-MLC",
+    model_id: MODEL_ID,
+    model_lib: "https://huggingface.co/ozhyhinas/MiniCPM5-2B-q4f16_1-MLC/resolve/main/libs/MiniCPM5-2B-q4f16_1-MLC-webgpu.wasm",
+    vram_required_MB: 1900,
+    low_resource_required: true,
+    required_features: ["shader-f16"],
+    overrides: { context_window_size: 4096 },
+  }],
+};
+
+const SYSTEM = "Sei un assistente utile. Rispondi sempre in italiano, in modo chiaro e conciso.";
+const MAX_HISTORY = 10; // ultimi messaggi tenuti in contesto (finestra da 4096 token)
+
+const $ = id => document.getElementById(id);
+const boot = $("boot"), chat = $("chat"), loadBtn = $("loadBtn"), statusEl = $("status");
+const fill = $("fill"), pct = $("pct"), msgs = $("msgs"), log = $("log");
+const input = $("input"), sendBtn = $("send"), newChatBtn = $("newChat"), thinkToggle = $("thinkToggle");
+
+let engine = null;
+let history = [];
+let busy = false;
+
+function setStatus(text, isError = false) {
+  statusEl.textContent = text;
+  statusEl.classList.toggle("error", isError);
+}
+
+/* 1. Controllo compatibilità */
+async function checkSupport() {
+  if (!window.isSecureContext) {
+    setStatus("Questa pagina va aperta da un indirizzo https (non da file locale). Caricala su un hosting e riaprila da Safari.", true);
+    return false;
+  }
+  if (!navigator.gpu) {
+    setStatus("WebGPU non è disponibile in questo browser. Su iPhone serve Safari con iOS 26 o successivo.", true);
+    return false;
+  }
+  try {
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) throw new Error("nessun adattatore");
+    if (!adapter.features.has("shader-f16")) {
+      setStatus("Il tuo GPU non supporta shader-f16, che serve a questo modello. Prova con un iPhone più recente.", true);
+      return false;
+    }
+  } catch (e) {
+    setStatus("WebGPU non risponde: " + e.message, true);
+    return false;
+  }
+  let cached = false;
+  try { cached = await webllm.hasModelInCache(MODEL_ID, appConfig); } catch {}
+  if (cached) {
+    loadBtn.textContent = "Avvia";
+    pct.innerHTML = "Pronto";
+    $("intro").textContent = "Il modello è già salvato su questo telefono. Si avvia senza scaricare nulla.";
+    setStatus("Modello trovato in memoria.");
+  } else {
+    setStatus("Tutto ok. Tieni Safari aperto in primo piano durante il download.");
+  }
+  loadBtn.disabled = false;
+  return true;
+}
+
+/* 2. Caricamento modello */
+loadBtn.addEventListener("click", async () => {
+  loadBtn.disabled = true;
+  setStatus("Avvio…");
+  try {
+    engine = await webllm.CreateMLCEngine(MODEL_ID, {
+      appConfig,
+      initProgressCallback: (r) => {
+        const p = Math.round((r.progress || 0) * 100);
+        fill.style.width = p + "%";
+        pct.innerHTML = p + "<span> %</span>";
+        setStatus(r.text);
+      },
+    });
+    boot.style.display = "none";
+    chat.style.display = "flex";
+    newChatBtn.disabled = false;
+    input.focus();
+  } catch (e) {
+    console.error(e);
+    const m = String(e.message || e);
+    const hint = /memory|oom|device lost|lost/i.test(m)
+      ? " Safari ha probabilmente esaurito la memoria: chiudi le altre schede e app e riprova."
+      : "";
+    setStatus("Caricamento non riuscito: " + m + hint, true);
+    loadBtn.disabled = false;
+    loadBtn.textContent = "Riprova";
+  }
+});
+
+/* 3. Render dei messaggi */
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function renderMarkdown(src) {
+  const parts = src.split(/```/);
+  return parts.map((part, i) => {
+    if (i % 2 === 1) {
+      const code = part.replace(/^[^\n]*\n/, "");
+      return "<pre><code>" + escapeHtml(code) + "</code></pre>";
+    }
+    let h = escapeHtml(part)
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    return h.split(/\n{2,}/).filter(p => p.trim()).map(p => "<p>" + p.replace(/\n/g, "<br>") + "</p>").join("");
+  }).join("");
+}
+// Divide il testo in ragionamento e risposta
+function splitThinking(text, thinkingOn, done) {
+  const open = text.indexOf("<think>");
+  const close = text.indexOf("</think>");
+  if (close !== -1) {
+    const start = open !== -1 && open < close ? open + 7 : 0;
+    return { think: text.slice(start, close).trim(), answer: text.slice(close + 8).trim(), thinking: false };
+  }
+  if (open !== -1) return { think: text.slice(open + 7).trim(), answer: "", thinking: true };
+  if (thinkingOn && !done) return { think: text.trim(), answer: "", thinking: true };
+  return { think: "", answer: text.trim(), thinking: false };
+}
+
+function addUser(text) {
+  $("empty")?.remove();
+  const el = document.createElement("div");
+  el.className = "msg user";
+  el.innerHTML = '<div class="bubble"></div>';
+  el.firstChild.textContent = text;
+  msgs.appendChild(el);
+  scrollDown();
+}
+function addBot() {
+  const el = document.createElement("div");
+  el.className = "msg bot";
+  el.innerHTML = '<details class="think" hidden><summary>Ragionamento</summary><div></div></details><div class="bubble cursor"></div><div class="meta"></div>';
+  msgs.appendChild(el);
+  scrollDown();
+  return el;
+}
+function updateBot(el, text, thinkingOn, done) {
+  const { think, answer, thinking } = splitThinking(text, thinkingOn, done);
+  const det = el.querySelector("details");
+  const bubble = el.querySelector(".bubble");
+  if (think) {
+    det.hidden = false;
+    det.querySelector("summary").textContent = thinking ? "Sta ragionando…" : "Ragionamento";
+    det.querySelector("div").textContent = think;
+  }
+  bubble.innerHTML = renderMarkdown(answer);
+  bubble.classList.toggle("cursor", !done);
+  return answer;
+}
+function scrollDown() {
+  const near = log.scrollHeight - log.scrollTop - log.clientHeight < 120;
+  if (near) log.scrollTop = log.scrollHeight;
+}
+
+/* 4. Invio */
+async function send() {
+  if (busy) { engine?.interruptGenerate(); return; }
+  const text = input.value.trim();
+  if (!text || !engine) return;
+  input.value = "";
+  autoGrow();
+  addUser(text);
+  history.push({ role: "user", content: text });
+  if (history.length > MAX_HISTORY) history = history.slice(-MAX_HISTORY);
+
+  const thinkingOn = thinkToggle.checked;
+  const el = addBot();
+  busy = true;
+  sendBtn.textContent = "■";
+  sendBtn.setAttribute("aria-label", "Ferma");
+
+  let full = "";
+  const t0 = performance.now();
+  let tokens = 0;
+  try {
+    const stream = await engine.chat.completions.create({
+      messages: [{ role: "system", content: SYSTEM }, ...history],
+      stream: true,
+      temperature: 1.0,
+      top_p: 0.95,
+      max_tokens: thinkingOn ? 2048 : 1024,
+      extra_body: { enable_thinking: thinkingOn },
+    });
+    for await (const chunk of stream) {
+      const d = chunk.choices[0]?.delta?.content || "";
+      if (d) { full += d; tokens++; updateBot(el, full, thinkingOn, false); scrollDown(); }
+    }
+    const answer = updateBot(el, full, thinkingOn, true);
+    history.push({ role: "assistant", content: answer || full });
+    const secs = (performance.now() - t0) / 1000;
+    el.querySelector(".meta").textContent = (tokens / secs).toFixed(1).replace(".", ",") + " token/s";
+  } catch (e) {
+    console.error(e);
+    updateBot(el, full, thinkingOn, true);
+    const m = String(e.message || e);
+    el.querySelector(".meta").textContent = /context/i.test(m)
+      ? "Conversazione troppo lunga per il modello. Premi Nuova chat."
+      : "Errore: " + m;
+    history.pop();
+  } finally {
+    busy = false;
+    sendBtn.textContent = "↑";
+    sendBtn.setAttribute("aria-label", "Invia");
+  }
+}
+
+sendBtn.addEventListener("click", send);
+input.addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey && !("ontouchstart" in window)) { e.preventDefault(); send(); }
+});
+function autoGrow() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 140) + "px"; }
+input.addEventListener("input", autoGrow);
+
+newChatBtn.addEventListener("click", async () => {
+  if (busy) engine?.interruptGenerate();
+  history = [];
+  try { await engine?.resetChat(); } catch {}
+  msgs.innerHTML = '<div class="empty" id="empty">Scrivi qualcosa per iniziare.</div>';
+});
+
+checkSupport();
+</script>
+</body>
+</html>
