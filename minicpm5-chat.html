@@ -71,6 +71,9 @@ header h1 small{display:block;font-size:12px;font-weight:400;color:var(--muted);
   border-radius:14px;padding:16px 20px;font-size:17px;font-weight:600;width:100%;
 }
 .primary:disabled{opacity:.5}
+.storage{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px;font-size:14px;color:var(--muted)}
+.storage select{font:inherit;font-size:16px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:6px 8px}
+.linkbtn{background:none;border:0;color:var(--accent);text-decoration:underline;padding:4px 0;font-size:14px}
 
 /* Chat */
 #chat{flex:1;display:none;flex-direction:column;min-height:0}
@@ -119,16 +122,32 @@ textarea{
 <body>
 
 <header>
-  <h1>Tasca<small>MiniCPM5-2B, tutto sul tuo telefono</small></h1>
+  <h1>Tasca<small id="subtitle">MiniCPM5-1B, tutto sul tuo telefono</small></h1>
   <button class="ghost" id="newChat" disabled>Nuova chat</button>
 </header>
 
 <section id="boot">
-  <div class="big" id="pct">1,4<span> GB</span></div>
+  <div class="big" id="pct">0,7<span> GB</span></div>
+  <div class="storage" style="margin:0 0 16px">
+    <label for="modelSel">Modello</label>
+    <select id="modelSel">
+      <option value="1b">MiniCPM5-1B, 0,7 GB (consigliato su iPhone)</option>
+      <option value="2b">MiniCPM5-2B, 1,4 GB (più bravo, più pesante)</option>
+    </select>
+  </div>
   <p id="intro">Il modello si scarica una volta sola, poi resta salvato in Safari e funziona anche senza internet. Usa il Wi‑Fi.</p>
   <div class="track"><div class="fill" id="fill"></div></div>
   <div id="status">Controllo il supporto WebGPU…</div>
   <button class="primary" id="loadBtn" disabled>Scarica e avvia</button>
+  <div class="storage">
+    <label for="backend">Salva in</label>
+    <select id="backend">
+      <option value="cache">Cache di Safari (predefinito)</option>
+      <option value="indexeddb">IndexedDB</option>
+      <option value="opfs">File privati (OPFS)</option>
+    </select>
+    <button class="linkbtn" id="clearBtn">Libera spazio</button>
+  </div>
 </section>
 
 <section id="chat">
@@ -145,20 +164,79 @@ textarea{
 </section>
 
 <script type="module">
-import * as webllm from "https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.84/+esm";
+import * as webllm from "https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.85/+esm";
 
-const MODEL_ID = "MiniCPM5-2B-q4f16_1-MLC";
-const appConfig = {
-  model_list: [{
-    model: "https://huggingface.co/ozhyhinas/MiniCPM5-2B-q4f16_1-MLC",
-    model_id: MODEL_ID,
-    model_lib: "https://huggingface.co/ozhyhinas/MiniCPM5-2B-q4f16_1-MLC/resolve/main/libs/MiniCPM5-2B-q4f16_1-MLC-webgpu.wasm",
-    vram_required_MB: 1900,
-    low_resource_required: true,
-    required_features: ["shader-f16"],
-    overrides: { context_window_size: 4096 },
-  }],
+const MODELS = {
+  "1b": {
+    id: "MiniCPM5-1B-q4f16_am-MLC", name: "MiniCPM5-1B", size: "0,7", needGB: 0.9,
+    temp: { think: 0.9, plain: 0.7 },
+  },
+  "2b": {
+    id: "MiniCPM5-2B-q4f16_1-MLC", name: "MiniCPM5-2B", size: "1,4", needGB: 1.7,
+    temp: { think: 1.0, plain: 1.0 },
+  },
 };
+const appConfig = {
+  model_list: [
+    {
+      model: "https://huggingface.co/CharlZKP/MiniCPM5-1B-MLC/resolve/main/MiniCPM5-1B-q4f16_am-MLC",
+      model_id: "MiniCPM5-1B-q4f16_am-MLC",
+      model_lib: "https://huggingface.co/CharlZKP/MiniCPM5-1B-MLC/resolve/main/libs/MiniCPM5-1B-q4f16_am_cs1k-webgpu.wasm",
+      vram_required_MB: 884.27,
+      low_resource_required: true,
+      required_features: ["shader-f16"],
+      overrides: { context_window_size: 4096 },
+    },
+    {
+      model: "https://huggingface.co/ozhyhinas/MiniCPM5-2B-q4f16_1-MLC",
+      model_id: "MiniCPM5-2B-q4f16_1-MLC",
+      model_lib: "https://huggingface.co/ozhyhinas/MiniCPM5-2B-q4f16_1-MLC/resolve/main/libs/MiniCPM5-2B-q4f16_1-MLC-webgpu.wasm",
+      vram_required_MB: 1900,
+      low_resource_required: true,
+      required_features: ["shader-f16"],
+      overrides: { context_window_size: 4096 },
+    },
+  ],
+  cacheBackend: "cache",
+};
+
+const modelSel = document.getElementById("modelSel");
+try { const m = localStorage.getItem("tasca-model"); if (m && MODELS[m]) modelSel.value = m; } catch {}
+let current = MODELS[modelSel.value];
+let MODEL_ID = current.id;
+modelSel.addEventListener("change", () => {
+  current = MODELS[modelSel.value];
+  MODEL_ID = current.id;
+  document.getElementById("subtitle").textContent = current.name + ", tutto sul tuo telefono";
+  try { localStorage.setItem("tasca-model", modelSel.value); } catch {}
+  checkSupport();
+});
+document.getElementById("subtitle").textContent = current.name + ", tutto sul tuo telefono";
+
+const backendSel = document.getElementById("backend");
+try { const b = localStorage.getItem("tasca-backend"); if (b) backendSel.value = b; } catch {}
+appConfig.cacheBackend = backendSel.value;
+backendSel.addEventListener("change", () => {
+  appConfig.cacheBackend = backendSel.value;
+  try { localStorage.setItem("tasca-backend", backendSel.value); } catch {}
+  checkSupport();
+});
+
+function fmtGB(bytes) { return (bytes / 1e9).toFixed(1).replace(".", ",") + " GB"; }
+
+// Cancella tutto ciò che la pagina ha salvato (anche download a metà)
+async function clearAllStorage() {
+  try { for (const k of await caches.keys()) await caches.delete(k); } catch {}
+  try {
+    if (indexedDB.databases) {
+      for (const db of await indexedDB.databases()) if (db.name) indexedDB.deleteDatabase(db.name);
+    }
+  } catch {}
+  try {
+    const root = await navigator.storage.getDirectory();
+    for await (const name of root.keys()) await root.removeEntry(name, { recursive: true });
+  } catch {}
+}
 
 const SYSTEM = "Sei un assistente utile. Rispondi sempre in italiano, in modo chiaro e conciso.";
 const MAX_HISTORY = 10; // ultimi messaggi tenuti in contesto (finestra da 4096 token)
@@ -198,6 +276,16 @@ async function checkSupport() {
     setStatus("WebGPU non risponde: " + e.message, true);
     return false;
   }
+  try { await navigator.storage?.persist?.(); } catch {}
+  let freeNote = "";
+  try {
+    const est = await navigator.storage.estimate();
+    if (est.quota) {
+      const free = est.quota - (est.usage || 0);
+      freeNote = " Spazio disponibile per questo sito: circa " + fmtGB(free) + ".";
+      if (free < current.needGB * 1e9) freeNote += " Potrebbe non bastare: libera spazio sull'iPhone.";
+    }
+  } catch {}
   let cached = false;
   try { cached = await webllm.hasModelInCache(MODEL_ID, appConfig); } catch {}
   if (cached) {
@@ -206,7 +294,9 @@ async function checkSupport() {
     $("intro").textContent = "Il modello è già salvato su questo telefono. Si avvia senza scaricare nulla.";
     setStatus("Modello trovato in memoria.");
   } else {
-    setStatus("Tutto ok. Tieni Safari aperto in primo piano durante il download.");
+    loadBtn.textContent = "Scarica e avvia";
+    pct.innerHTML = current.size + "<span> GB</span>";
+    setStatus("Tutto ok. Tieni Safari aperto in primo piano durante il download." + freeNote);
   }
   loadBtn.disabled = false;
   return true;
@@ -215,17 +305,34 @@ async function checkSupport() {
 /* 2. Caricamento modello */
 loadBtn.addEventListener("click", async () => {
   loadBtn.disabled = true;
+  modelSel.disabled = true;
   setStatus("Avvio…");
+  const MAX_TRIES = 20;
+  let attempt = 1;
   try {
-    engine = await webllm.CreateMLCEngine(MODEL_ID, {
-      appConfig,
-      initProgressCallback: (r) => {
-        const p = Math.round((r.progress || 0) * 100);
-        fill.style.width = p + "%";
-        pct.innerHTML = p + "<span> %</span>";
-        setStatus(r.text);
-      },
-    });
+    while (true) {
+      try {
+        engine = await webllm.CreateMLCEngine(MODEL_ID, {
+          appConfig,
+          initProgressCallback: (r) => {
+            const p = Math.round((r.progress || 0) * 100);
+            fill.style.width = p + "%";
+            pct.innerHTML = p + "<span> %</span>";
+            setStatus((attempt > 1 ? "Tentativo " + attempt + ": " : "") + r.text);
+          },
+        });
+        break;
+      } catch (err) {
+        // Safari a volte interrompe il salvataggio: i pezzi già salvati restano, quindi si riprende da lì
+        if (/file system|write|quota|storage|load failed|network/i.test(String(err.message || err)) && attempt < MAX_TRIES) {
+          attempt++;
+          setStatus("Salvataggio interrotto, riprendo da dove ero rimasto (tentativo " + attempt + " di " + MAX_TRIES + ")…");
+          await new Promise(r => setTimeout(r, 2000));
+          continue;
+        }
+        throw err;
+      }
+    }
     boot.style.display = "none";
     chat.style.display = "flex";
     newChatBtn.disabled = false;
@@ -233,11 +340,15 @@ loadBtn.addEventListener("click", async () => {
   } catch (e) {
     console.error(e);
     const m = String(e.message || e);
-    const hint = /memory|oom|device lost|lost/i.test(m)
-      ? " Safari ha probabilmente esaurito la memoria: chiudi le altre schede e app e riprova."
-      : "";
+    let hint = "";
+    if (/file system|quota|storage|write/i.test(m)) {
+      hint = " Safari non è riuscito a salvare il modello. Tocca Riprova: i pezzi già scaricati restano salvati.";
+    } else if (/memory|oom|device lost|lost/i.test(m)) {
+      hint = " Safari ha probabilmente esaurito la memoria: chiudi le altre schede e app e riprova.";
+    }
     setStatus("Caricamento non riuscito: " + m + hint, true);
     loadBtn.disabled = false;
+    modelSel.disabled = false;
     loadBtn.textContent = "Riprova";
   }
 });
@@ -331,7 +442,7 @@ async function send() {
     const stream = await engine.chat.completions.create({
       messages: [{ role: "system", content: SYSTEM }, ...history],
       stream: true,
-      temperature: 1.0,
+      temperature: thinkingOn ? current.temp.think : current.temp.plain,
       top_p: 0.95,
       max_tokens: thinkingOn ? 2048 : 1024,
       extra_body: { enable_thinking: thinkingOn },
@@ -371,6 +482,14 @@ newChatBtn.addEventListener("click", async () => {
   history = [];
   try { await engine?.resetChat(); } catch {}
   msgs.innerHTML = '<div class="empty" id="empty">Scrivi qualcosa per iniziare.</div>';
+});
+
+document.getElementById("clearBtn").addEventListener("click", async () => {
+  setStatus("Cancello i dati salvati…");
+  await clearAllStorage();
+  fill.style.width = "0";
+  await checkSupport();
+  setStatus("Dati cancellati. " + statusEl.textContent);
 });
 
 checkSupport();
